@@ -1,145 +1,173 @@
+'use client';
 
-import { useEffect, useState } from 'react'
-import { Download, TrendingUp, Users, Calendar, FileText } from 'lucide-react'
-import { MainLayout } from '@/components/layout/MainLayout'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
+import { MainLayout } from '@/components/layout/MainLayout';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell
-} from 'recharts'
-import { supabase } from '@/lib/supabase'
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, LineChart, Line,
+  PieChart, Pie, Cell, Legend
+} from 'recharts';
+import { supabase } from '@/lib/supabase';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 
-const Reports = () => {
-  const [monthlyData, setMonthlyData] = useState<any[]>([])
-  const [departmentData, setDepartmentData] = useState<any[]>([])
-  const [appointmentTrend, setAppointmentTrend] = useState<any[]>([])
-  const [stats, setStats] = useState<any>({})
+const COLORS = [
+  '#6366f1', '#22c55e', '#f59e0b',
+  '#ef4444', '#06b6d4', '#8b5cf6'
+];
+
+export default function Reports() {
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [monthlyData, setMonthlyData] = useState<any[]>([]);
+  const [weeklyData, setWeeklyData] = useState<any[]>([]);
+  const [departmentData, setDepartmentData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchReports()
-  }, [])
+    fetchReports();
+  }, []);
 
   const fetchReports = async () => {
+    setLoading(true);
 
-    // 🔥 FETCH COUNTS
-    const { count: patients } = await supabase
-      .from('patients')
-      .select('*', { count: 'exact', head: true })
-
-    const { count: appointments } = await supabase
+    const { data } = await supabase
       .from('appointments')
-      .select('*', { count: 'exact', head: true })
+      .select(`
+        id,
+        appointment_date,
+        appointment_time,
+        status,
+        patients ( full_name ),
+        doctors ( full_name, specialization )
+      `);
 
-    const { count: prescriptions } = await supabase
-      .from('prescriptions')
-      .select('*', { count: 'exact', head: true })
+    const formatted = data?.map((a: any) => ({
+      id: a.id,
+      patient: a.patients?.full_name || 'Unknown',
+      doctor: a.doctors?.full_name || 'Unknown',
+      department: a.doctors?.specialization || 'General',
+      date: a.appointment_date,
+      time: a.appointment_time?.slice(0, 5),
+      status: a.status,
+    })) || [];
 
-    setStats({ patients, appointments, prescriptions })
+    setAppointments(formatted);
 
-    // 🔥 FETCH APPOINTMENTS
-    const { data: appts } = await supabase
-      .from('appointments')
-      .select('appointment_date')
+    // 📊 MONTHLY (FULL YEAR STRUCTURE)
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthMap: any = Object.fromEntries(months.map(m => [m, 0]));
 
-    // 🟢 MONTHLY
-    const monthMap: any = {
-      Jul: 0, Aug: 0, Sep: 0, Oct: 0, Nov: 0, Dec: 0
+    formatted.forEach(a => {
+      const m = new Date(a.date).toLocaleString('default', { month: 'short' });
+      monthMap[m]++;
+    });
+
+    setMonthlyData(months.map(m => ({ month: m, count: monthMap[m] })));
+
+    // 📊 WEEKLY
+    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const weekMap: any = Object.fromEntries(days.map(d => [d, 0]));
+
+    formatted.forEach(a => {
+      const d = new Date(a.date).toLocaleString('en-US', { weekday: 'short' });
+      weekMap[d]++;
+    });
+
+    setWeeklyData(days.map(d => ({ day: d, count: weekMap[d] })));
+
+    // 🧠 DEPARTMENT (SMART GROUPING)
+    const deptMap: any = {};
+    formatted.forEach(a => {
+      deptMap[a.department] = (deptMap[a.department] || 0) + 1;
+    });
+
+    let deptArray = Object.entries(deptMap).map(([name, value]) => ({
+      name,
+      value: value as number
+    }));
+
+    deptArray.sort((a, b) => b.value - a.value);
+
+    const main = deptArray.slice(0, 4);
+    const others = deptArray.slice(4).reduce((sum, d) => sum + d.value, 0);
+
+    if (others > 0) {
+      main.push({ name: 'Others', value: others });
     }
 
-    appts?.forEach((a) => {
-      const m = new Date(a.appointment_date)
-        .toLocaleString('default', { month: 'short' })
+    setDepartmentData(main);
 
-      if (monthMap[m] !== undefined) monthMap[m]++
-    })
+    setLoading(false);
+  };
 
-    setMonthlyData(
-      Object.keys(monthMap).map((m) => ({
-        month: m,
-        patients: monthMap[m], // KEEP KEY SAME
-      }))
-    )
+  // 📥 EXPORT
+  const exportExcel = () => {
+    const sheet = XLSX.utils.json_to_sheet(appointments);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheet, 'Appointments');
 
-    // 🟢 WEEKLY
-    const weekMap: any = {
-      Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0
-    }
+    const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
 
-    appts?.forEach((a) => {
-      const d = new Date(a.appointment_date)
-        .toLocaleString('en-US', { weekday: 'short' })
+    saveAs(new Blob([buffer]), 'appointments.xlsx');
+  };
 
-      if (weekMap[d] !== undefined) weekMap[d]++
-    })
-
-    setAppointmentTrend(
-      Object.keys(weekMap).map((d) => ({
-        day: d,
-        count: weekMap[d],
-      }))
-    )
-
-    // 🟢 DEPARTMENT
-    const { data: docs } = await supabase
-      .from('doctors')
-      .select('specialization')
-
-    const deptMap: any = {}
-
-    docs?.forEach((d) => {
-      deptMap[d.specialization] = (deptMap[d.specialization] || 0) + 1
-    })
-
-    const total = docs?.length || 1
-
-    setDepartmentData(
-      Object.keys(deptMap).map((k) => ({
-        name: k,
-        value: Math.round((deptMap[k] / total) * 100),
-        color: getColor(k),
-      }))
-    )
-  }
-
-  const getColor = (name: string) => {
-    const colors: any = {
-      'General Medicine': 'hsl(174, 72%, 40%)',
-      'Cardiology': 'hsl(38, 92%, 50%)',
-      'Pediatrics': 'hsl(145, 65%, 42%)',
-      'Orthopedics': 'hsl(200, 70%, 50%)',
-    }
-    return colors[name] || 'hsl(215, 16%, 47%)'
+  // 🌀 LOADING UI
+  if (loading) {
+    return (
+      <MainLayout title="Reports" subtitle="Loading...">
+        <div className="flex justify-center items-center h-[60vh]">
+          <div className="animate-spin h-10 w-10 border-4 border-primary border-t-transparent rounded-full" />
+        </div>
+      </MainLayout>
+    );
   }
 
   return (
-    <MainLayout title="Reports" subtitle="Analytics and performance insights">
+    <MainLayout title="Reports" subtitle="Analytics + Data Export">
 
-      {/* SUMMARY */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-muted-foreground">Total Patients</p>
-            <p className="text-2xl font-bold">{stats.patients || 0}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-muted-foreground">Appointments</p>
-            <p className="text-2xl font-bold">{stats.appointments || 0}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-muted-foreground">Prescriptions</p>
-            <p className="text-2xl font-bold">{stats.prescriptions || 0}</p>
-          </CardContent>
-        </Card>
-
+      {/* DOWNLOAD */}
+      <div className="mb-4 flex justify-end">
+        <Button onClick={exportExcel}>
+          <Download className="mr-2 h-4 w-4" />
+          Export Excel
+        </Button>
       </div>
+
+      {/* TABLE */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>All Appointments (Clear Data View)</CardTitle>
+        </CardHeader>
+        <CardContent className="max-h-80 overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b">
+              <tr>
+                <th>Patient</th>
+                <th>Doctor</th>
+                <th>Department</th>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {appointments.map((a, i) => (
+                <tr key={i} className="border-b">
+                  <td>{a.patient}</td>
+                  <td>{a.doctor}</td>
+                  <td>{a.department}</td>
+                  <td>{a.date}</td>
+                  <td>{a.time}</td>
+                  <td>{a.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
 
       {/* CHARTS */}
       <div className="grid gap-6 lg:grid-cols-2">
@@ -147,7 +175,7 @@ const Reports = () => {
         {/* MONTHLY */}
         <Card>
           <CardHeader>
-            <CardTitle>Monthly Overview</CardTitle>
+            <CardTitle>Monthly Appointments</CardTitle>
           </CardHeader>
           <CardContent className="h-72">
             <ResponsiveContainer>
@@ -156,25 +184,34 @@ const Reports = () => {
                 <XAxis dataKey="month" />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="patients" fill="hsl(174,72%,40%)" />
+                <Bar dataKey="count" />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* DEPARTMENT */}
+        {/* PIE */}
         <Card>
           <CardHeader>
-            <CardTitle>Department Distribution</CardTitle>
+            <CardTitle>Department Distribution (%)</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer height={200}>
+            <ResponsiveContainer height={250}>
               <PieChart>
-                <Pie data={departmentData} dataKey="value">
-                  {departmentData.map((e, i) => (
-                    <Cell key={i} fill={e.color} />
+                <Pie
+                  data={departmentData}
+                  dataKey="value"
+                  nameKey="name"
+                  outerRadius={90}
+                  label={({ name, percent }) =>
+                    `${name} ${(percent * 100).toFixed(0)}%`
+                  }
+                >
+                  {departmentData.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
                   ))}
                 </Pie>
+                <Legend />
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
@@ -188,17 +225,12 @@ const Reports = () => {
           </CardHeader>
           <CardContent className="h-64">
             <ResponsiveContainer>
-              <LineChart data={appointmentTrend}>
+              <LineChart data={weeklyData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="day" />
                 <YAxis />
                 <Tooltip />
-                <Line
-                  type="monotone"
-                  dataKey="count"
-                  stroke="hsl(174,72%,40%)"
-                  strokeWidth={3}
-                />
+                <Line type="monotone" dataKey="count" strokeWidth={3} />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
@@ -206,7 +238,5 @@ const Reports = () => {
 
       </div>
     </MainLayout>
-  )
+  );
 }
-
-export default Reports

@@ -52,12 +52,7 @@ const Index = () => {
         icon: Calendar,
         variant: 'warning',
       },
-      {
-        title: 'Pending Bills',
-        value: `₹${pendingBills}`,
-        icon: Receipt,
-        variant: 'default',
-      },
+     
     ])
   }
 

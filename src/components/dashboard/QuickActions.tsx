@@ -16,13 +16,7 @@ const actions = [
     path: '/appointments',
     color: 'bg-success',
   },
-  {
-    icon: Receipt,
-    label: 'Create Bill',
-    description: 'Generate invoice',
-    path: '/billing',
-    color: 'bg-warning',
-  },
+  
   {
     icon: ClipboardList,
     label: 'Write Prescription',
