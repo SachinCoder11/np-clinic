@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 
 // pages
 import Login from "./pages/Login";
+import Register from "./pages/Register"; // ✅ IMPORTANT
 import Index from "./pages/Index";
 import Patients from "./pages/Patients";
 import Doctors from "./pages/Doctors";
@@ -21,7 +22,7 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 
-// 🔐 PROTECTED ROUTE COMPONENT
+// 🔐 PROTECTED ROUTE
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -39,11 +40,12 @@ const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
       return;
     }
 
+    // ✅ SAFE QUERY
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", data.user.id)
-      .single();
+      .maybeSingle(); // 👈 FIXED
 
     if (profile?.role === "admin") {
       setIsAdmin(true);
@@ -55,6 +57,7 @@ const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
     setLoading(false);
   };
 
+  // ⏳ Loading
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center">
@@ -63,6 +66,7 @@ const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
     );
   }
 
+  // ❌ Not authorized
   if (!isAdmin) {
     return <Navigate to="/login" />;
   }
@@ -83,6 +87,7 @@ const App = () => (
 
           {/* 🔓 PUBLIC */}
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} /> {/* ✅ THIS WAS MISSING */}
 
           {/* 🔐 PROTECTED */}
           <Route
